@@ -16,14 +16,14 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 
-URL = 'https://cloudme.one/refs/2/1655904'
-COUNT = 28
+URL = 'https://cloudme.one/refs/28212/1399460'
+COUNT = 100
 
 @dataclass
 class Config:
 	url: str 
 	count: int 
-	download_dir: Path
+	download_dir: Path = Path(r"G:\manhua\kjywmm")
 	headless: bool = False
 	per_download_timeout: int = 600  # seconds
 	page_load_timeout: int = 60  # seconds
@@ -55,8 +55,17 @@ def build_driver(cfg: Config) -> webdriver.Chrome:
 	}
 	options.add_experimental_option("prefs", prefs)
 
-	# Selenium Manager (Selenium >= 4.6) auto-manages chromedriver
-	service = ChromeService()
+	# 使用 webdriver-manager 自动为当前浏览器版本获取匹配的 chromedriver。
+	try:
+		wm_module = __import__("webdriver_manager.chrome", fromlist=["ChromeDriverManager"])
+		ChromeDriverManager = getattr(wm_module, "ChromeDriverManager")
+	except ImportError as exc:
+		raise RuntimeError(
+			"缺少webdriver-manager依赖，请先运行 `pip install webdriver-manager` 后重试。"
+		) from exc
+	
+	driver_path = ChromeDriverManager().install()
+	service = ChromeService(executable_path=driver_path)
 	driver = webdriver.Chrome(service=service, options=options)
 	driver.set_page_load_timeout(cfg.page_load_timeout)
 	if cfg.implicit_wait:
@@ -268,8 +277,8 @@ def parse_args(argv=None) -> Config:
 	parser.add_argument(
 		"--download-dir",
 		dest="download_dir",
-		# 默认下载目录：优先使用 G:\\Download（Windows 常见），否则使用当前目录下 downloads
-		default=str(Path("G:/Download") if os.name == "nt" else (Path.cwd() / "downloads").resolve()),
+		# 默认留空则使用 Config 数据类中的默认下载目录
+		default=None,
 		help="下载目录（将自动创建）",
 	)
 	parser.add_argument("--headless", action="store_true", help="使用无头模式运行 Chrome")
@@ -280,7 +289,9 @@ def parse_args(argv=None) -> Config:
 	return Config(
 		url=args.url,
 		count=args.count,
-		download_dir=Path(args.download_dir),
+		download_dir=Path(args.download_dir)
+		if args.download_dir
+		else Config.__dataclass_fields__["download_dir"].default,
 		headless=args.headless,
 		per_download_timeout=args.per_download_timeout,
 		page_load_timeout=args.page_load_timeout,
