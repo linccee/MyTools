@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Set, Tuple
+import shutil
 
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException
@@ -16,14 +17,21 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
 
 
-URL = 'https://cloudme.one/refs/28212/1399460'
-COUNT = 100
+URL = 'https://cloudme.one/refs/28212/1727581'
+COUNT = 20
 
 @dataclass
 class Config:
 	url: str 
 	count: int 
-	download_dir: Path = Path(r"G:\manhua\kjywmm")
+	download_dir: Path = Path(r"/Volumes/Zylon/manhua/kjywmm")
+	chromedriver_path: Optional[Path] = Path(r"/Users/suzilong/Toolenv/chromedriver-mac-arm64/chromedriver")
+
+	def __post_init__(self):
+		# 如果 parse_args 显式传入了 None（覆盖了 dataclass 的默认值），在初始化后恢复为类定义的默认路径，
+		# 以优先使用本地 chromedriver 文件，避免自动下载失败的问题。
+		if self.chromedriver_path is None:
+			self.chromedriver_path = type(self).__dataclass_fields__["chromedriver_path"].default
 	headless: bool = False
 	per_download_timeout: int = 600  # seconds
 	page_load_timeout: int = 60  # seconds
@@ -55,16 +63,29 @@ def build_driver(cfg: Config) -> webdriver.Chrome:
 	}
 	options.add_experimental_option("prefs", prefs)
 
-	# 使用 webdriver-manager 自动为当前浏览器版本获取匹配的 chromedriver。
-	try:
-		wm_module = __import__("webdriver_manager.chrome", fromlist=["ChromeDriverManager"])
-		ChromeDriverManager = getattr(wm_module, "ChromeDriverManager")
-	except ImportError as exc:
-		raise RuntimeError(
-			"缺少webdriver-manager依赖，请先运行 `pip install webdriver-manager` 后重试。"
-		) from exc
-	
-	driver_path = ChromeDriverManager().install()
+	# 优先使用用户提供的本地 chromedriver
+	driver_path = None
+	if cfg.chromedriver_path:
+		cd_path = Path(cfg.chromedriver_path)
+		if not cd_path.exists():
+			raise RuntimeError(f"指定的 chromedriver 路径不存在: {cfg.chromedriver_path}")
+		driver_path = str(cd_path)
+	else:
+		# 尝试使用 webdriver-manager 自动为当前浏览器版本获取匹配的 chromedriver。
+		try:
+			wm_module = __import__("webdriver_manager.chrome", fromlist=["ChromeDriverManager"])
+			ChromeDriverManager = getattr(wm_module, "ChromeDriverManager")
+			driver_path = ChromeDriverManager().install()
+		except ImportError:
+			# 回退到系统 PATH 中查找 chromedriver
+			path_in_path = shutil.which("chromedriver")
+			if path_in_path:
+				driver_path = path_in_path
+			else:
+				raise RuntimeError(
+					"缺少 webdriver-manager 且未在 PATH 中找到 chromedriver。请安装 webdriver-manager 或使用 --chromedriver-path 指定本地 chromedriver。"
+				)
+
 	service = ChromeService(executable_path=driver_path)
 	driver = webdriver.Chrome(service=service, options=options)
 	driver.set_page_load_timeout(cfg.page_load_timeout)
@@ -284,6 +305,12 @@ def parse_args(argv=None) -> Config:
 	parser.add_argument("--headless", action="store_true", help="使用无头模式运行 Chrome")
 	parser.add_argument("--per-download-timeout", type=int, default=600, help="单次下载最大等待秒数")
 	parser.add_argument("--page-load-timeout", type=int, default=60, help="页面加载超时秒数")
+	parser.add_argument(
+		"--chromedriver-path",
+		dest="chromedriver_path",
+		default=None,
+		help="本地 chromedriver 可执行文件的路径（优先）",
+	)
 	args = parser.parse_args(argv)
 
 	return Config(
@@ -292,6 +319,7 @@ def parse_args(argv=None) -> Config:
 		download_dir=Path(args.download_dir)
 		if args.download_dir
 		else Config.__dataclass_fields__["download_dir"].default,
+	chromedriver_path=Path(args.chromedriver_path) if args.chromedriver_path else None,
 		headless=args.headless,
 		per_download_timeout=args.per_download_timeout,
 		page_load_timeout=args.page_load_timeout,
