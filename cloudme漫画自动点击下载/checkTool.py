@@ -2,9 +2,9 @@ import os
 import re
 import glob
 
-START_NUM = 122
-END_NUM = 400
-DIR = 'G:\迅雷下载\mah'
+START_NUM = 100
+END_NUM = 272
+DIR = '/Volumes/Zylon/manhua/kjywmm'
 FILE_FORMAT = 'cbz'
 
 def check_files():
